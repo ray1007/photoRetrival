@@ -5,6 +5,9 @@ import pdb
 
 batch = 200
 
+'''
+dot product for reducing ram usage.
+'''
 def memDot(outname, in1, in2):
     sh = (in1.shape[0], in2.shape[1])
     result = np.memmap(outname, dtype='float32', mode='w+', \
@@ -15,7 +18,11 @@ def memDot(outname, in1, in2):
         e = (i+1)*batch
         if(e > sh[0]): e=sh[0]
         result[s:e,:] = np.dot(in1[s:e,:],in2)
-
+'''
+Cost functions
+    euclidean distance
+    KL divergence
+'''
 def euclideanDist(Afilename, Bfilename, Vshape):
     A = np.memmap(Afilename, dtype='float32', mode='r', \
                   shape=Vshape)
@@ -32,7 +39,24 @@ def euclideanDist(Afilename, Bfilename, Vshape):
         distSum += np.sum((A[s:e,:]-B[s:e,:])**2)
     return np.sqrt(distSum)
 
+def KLDivergence(Afilename, Bfilename, Vshape):
+    A = np.memmap(Afilename, dtype='float32', mode='r', \
+                  shape=(Vshape[0]*Vshape[1], 1))
+    B = np.memmap(Bfilename, dtype='float32', mode='r', \
+                  shape=(Vshape[0]*Vshape[1], 1))
+    distSum=0
+    for i in xrange(A.shape[0]/batch):
+        s = i*batch
+        e = (i+1)*batch
+        if(e > A.shape[0]): e=A.shape[0]
+        distSum += (A[s:e,:]*np.log((A[s:e,:]+float(1e-8))/ \
+                                    (B[s:e,]+float(1e-8))) \
+                    -A[s:e,:] + B[s:e,:])
+    return distSum
 
+'''
+Multiplicative update rules.
+'''
 def euclideanUpdate(V,W,H):
     W_old = np.copy(W)
     H_old = np.copy(H)
@@ -57,13 +81,37 @@ def euclideanUpdate(V,W,H):
         W[s:e,:] /= (np.dot(WH[s:e,:],H_old.T)+float(1e-8))
     return (W_old, H_old)
 
+def KLDivUpdate(V,W,H):
+    W_old = np.copy(W)
+    H_old = np.copy(H)
+    memDot('WH.tmp', W, H)
+    WH=np.memmap('WH.tmp', dtype='float32', mode='r', \
+                 shape=(W.shape[0], H.shape[1]))
+    for (a,u),h in np.ndenumerate(H_old): # update H.
+        numer=0.0;
+        denom=0.0;
+        for i in xrange(W_old.shape[0]):
+            numer += float(W_old[(i,a)]) * V[(i,u)] / WH[(i,u)]
+            denom += float(W_old[(i,a)])
+        H[(a,u)] = float(H_old[(a,u)])*(numer+float(1e-8))/(denom+float(1e-8))
+    memDot('WH.tmp', W, H)
+    for (i,a),w in np.ndenumerate(W_old): # update W.
+        numer=0.0;
+        denom=0.0;
+        for u in xrange(H.shape[1]):
+            numer += float(H_old[(a,u)]) * V[(i,u)] / WH[(i,u)]
+            denom += float(H_old[(a,u)])
+        W[(i,a)] = float(W_old[i,a])*(numer+float(1e-8))/(denom+float(1e-8))
+    return (W_old, H_old)
+
+
 costFuncs = {
     'euclidean' : euclideanDist,
-    #'klDiv' : KLDivergence
+    'klDiv' : KLDivergence
 }
 updateFuncs = {
     'euclidean' : euclideanUpdate,
-    #'klDiv' : KLDivUpdate
+    'klDiv' : KLDivUpdate
 }
 
 class nmf_config:
@@ -123,8 +171,8 @@ def nmf(V, config):
     #print(" time eplased={0:.0f}".format(time()-beginTime))
 
 if __name__ == "__main__":
-    config = nmf_config(90, 0.0000001, "euclidean")
-    #config = nmf_config(3, 0.0000001, "klDiv")
+    #config = nmf_config(90, 0.0000001, "euclidean")
+    config = nmf_config(90, 0.0000001, "klDiv")
     numFeat   = 61509
     numPhoto  = 7777
     V = np.memmap('nmf_a', dtype='float32', mode='r+', \
