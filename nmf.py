@@ -7,10 +7,10 @@ batch = 200
 
 def memDot(outname, in1, in2):
     sh = (in1.shape[0], in2.shape[1])
-    result = np.memmap(outname, dtype='float32', mode='r+', \
+    result = np.memmap(outname, dtype='float32', mode='w+', \
                        shape=sh)
     for i in xrange(sh[0]/batch):
-        print("{0} of {1}".format(i,sh[0]/batch))
+        #print("{0} of {1}".format(i,sh[0]/batch))
         s = i*batch
         e = (i+1)*batch
         if(e > sh[0]): e=sh[0]
@@ -25,7 +25,7 @@ def euclideanDist(Afilename, Bfilename, Vshape):
         return None
     distSum=0
     for i in xrange(A.shape[0]/batch):
-        print("{0} of {1}".format(i,A.shape[0]/batch))
+        #print("{0} of {1}".format(i,A.shape[0]/batch))
         s = i*batch
         e = (i+1)*batch
         if(e > A.shape[0]): e=A.shape[0]
@@ -40,7 +40,7 @@ def euclideanUpdate(V,W,H):
     WH=np.memmap('WH.tmp', dtype='float32', mode='r', \
                  shape=(W.shape[0], H.shape[1]))
     for i in xrange(H_old.shape[1]/batch):
-        print("{0} of {1}".format(i,H_old.shape[1]/batch))
+        #print("{0} of {1}".format(i,H_old.shape[1]/batch))
         s = i*batch
         e = (i+1)*batch
         if(e > H_old.shape[1]): e=H_old.shape[1]
@@ -49,12 +49,13 @@ def euclideanUpdate(V,W,H):
 
     memDot('WH.tmp', W, H)
     for i in xrange(W_old.shape[0]/batch):
-        print("{0} of {1}".format(i,W_old.shape[0]/batch))
+        #print("{0} of {1}".format(i,W_old.shape[0]/batch))
         s = i*batch
         e = (i+1)*batch
         if(e > W_old.shape[0]): e=W_old.shape[0]
         W[s:e,:] *= (np.dot(V[s:e,:], H_old.T)+float(1e-8))
         W[s:e,:] /= (np.dot(WH[s:e,:],H_old.T)+float(1e-8))
+    return (W_old, H_old)
 
 costFuncs = {
     'euclidean' : euclideanDist,
@@ -92,7 +93,7 @@ def nmf(V, config):
     H.fill(1)
     memDot('WH.tmp', W, H)
     print("Init WH calculated.")
-    pdb.set_trace()
+    #pdb.set_trace()
     currCost = config.costFunc(Vfname, WHfname, dimV)
     lastCost = currCost
     iterCount = 0
@@ -100,12 +101,14 @@ def nmf(V, config):
 	# Run multiplicative update rule.
     for it in xrange(maxIter):
         if it % 500 == 0: print(it)
-        config.update(V,W,H)
-        memDot(W, H)
+        (W_o, H_o) = config.update(V,W,H)
+        memDot(WHfname, W, H)
         newCost = config.costFunc(Vfname, WHfname, dimV)
-        print("lastcost:{0}, currCost:{1}, temp:{2}".format(lastCost,currCost,temp))
-        if(lastCost != currCost and lastCost - temp < config.minDelta):
-            print("break since {0} -> {1}".format(lastCost,temp))
+        print("lastcost:{0}, currCost:{1}, newCost:{2}".format(lastCost,currCost,newCost))
+        if(lastCost != currCost and lastCost - newCost < config.minDelta):
+            print("break since {0} -> {1}".format(lastCost,newCost))
+            W[:] = W_o[:]
+            H[:] = H_o[:]
             break
         lastCost = currCost
         currCost = newCost
