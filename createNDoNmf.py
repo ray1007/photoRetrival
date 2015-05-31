@@ -3,7 +3,8 @@
 from sys import argv
 import numpy as np
 import nmf as nmf
-from scipy.sparse import coo_matrix 
+#from scipy.sparse import coo_matrix 
+#import resource
 
 numSpeech = 51135
 numViWord = 10000
@@ -35,7 +36,7 @@ def readDoc(docNum, A):
 def createMatrix():
     #A = np.zeros(shape=(numPhoto, numFeat), dtype=np.float16)
     #A = coo_matrix((numPhoto, numFeat), dtype=np.float)
-    A = np.memmap('nmf_a', dtype='float64', mode='w+', shape=(numPhoto,numFeat))
+    A = np.memmap('nmf_a', dtype='float32', mode='w+', shape=(numPhoto,numFeat))
     for i in xrange(1, numPhoto+1):
         if(i%1000 == 0):
             print("Parsed photo {0}".format(i+1))
@@ -43,13 +44,17 @@ def createMatrix():
     return A
 
 if __name__ == "__main__":
+    #print resource.getrlimit(resource.RUSAGE_SELF)
+    #resource.setrlimit(resource.RUSAGE_SELF,(5000000000,7000000000))
+
     # Read in all corpus data and create matrix.
     A = createMatrix()
     #np.savetxt('nmf_A.txt',A)
     print("Created A.")
-    # Start nmf.
+    '''# Start nmf.
     d = 90
     config = nmf.nmf_config(d, 0.00001, 'euclidean')
     (W,H) = nmf.nmf(A,config)
     np.savetxt('nmf_W.txt',W)
     np.savetxt('nmf_H.txt',H) 
+    '''

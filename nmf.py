@@ -1,64 +1,68 @@
 #!/usr/bin/python
 
 import numpy as np
-from time import time
 import pdb
-import gc as gc
 
-#np.seterr(divide='print')
-print("gc.isenabled()={0}".format(gc.isenabled()))
+batch = 200
 
-def euclideanDist(A, B):
+def memDot(outname, in1, in2):
+    sh = (in1.shape[0], in2.shape[1])
+    result = np.memmap(outname, dtype='float32', mode='r+', \
+                       shape=sh)
+    for i in xrange(sh[0]/batch):
+        print("{0} of {1}".format(i,sh[0]/batch))
+        s = i*batch
+        e = (i+1)*batch
+        if(e > sh[0]): e=sh[0]
+        result[s:e,:] = np.dot(in1[s:e,:],in2)
+
+def euclideanDist(Afilename, Bfilename, Vshape):
+    A = np.memmap(Afilename, dtype='float32', mode='r', \
+                  shape=Vshape)
+    B = np.memmap(Bfilename, dtype='float32', mode='r', \
+                  shape=Vshape)
     if A.shape != B.shape:
         return None
-    return np.sqrt(np.memmap.sum((A-B)**2))
+    distSum=0
+    for i in xrange(A.shape[0]/batch):
+        print("{0} of {1}".format(i,A.shape[0]/batch))
+        s = i*batch
+        e = (i+1)*batch
+        if(e > A.shape[0]): e=A.shape[0]
+        distSum += np.sum((A[s:e,:]-B[s:e,:])**2)
+    return np.sqrt(distSum)
 
-def KLDivergence(A, B):
-    if A.shape != B.shape:
-        return None
-    return np.memmap.sum(A*np.memmap.log(A/B)-A+B)
+
+def euclideanUpdate(V,W,H):
+    W_old = np.copy(W)
+    H_old = np.copy(H)
+    memDot('WH.tmp', W, H)
+    WH=np.memmap('WH.tmp', dtype='float32', mode='r', \
+                 shape=(W.shape[0], H.shape[1]))
+    for i in xrange(H_old.shape[1]/batch):
+        print("{0} of {1}".format(i,H_old.shape[1]/batch))
+        s = i*batch
+        e = (i+1)*batch
+        if(e > H_old.shape[1]): e=H_old.shape[1]
+        H[:,s:e] *= (np.dot(W_old.T, V[:,s:e])+float(1e-8))
+        H[:,s:e] /= (np.dot(W_old.T, WH[:,s:e])+float(1e-8))
+
+    memDot('WH.tmp', W, H)
+    for i in xrange(W_old.shape[0]/batch):
+        print("{0} of {1}".format(i,W_old.shape[0]/batch))
+        s = i*batch
+        e = (i+1)*batch
+        if(e > W_old.shape[0]): e=W_old.shape[0]
+        W[s:e,:] *= (np.dot(V[s:e,:], H_old.T)+float(1e-8))
+        W[s:e,:] /= (np.dot(WH[s:e,:],H_old.T)+float(1e-8))
 
 costFuncs = {
     'euclidean' : euclideanDist,
-    'klDiv' : KLDivergence
+    #'klDiv' : KLDivergence
 }
-
-def euclideanUpdate(V,W,H):
-    Wtemp = np.memmap.copy(W)
-    Htemp = np.memmap.copy(H)
-    WH=np.memmap.dot(W,H)
-    Htemp *= (np.memmap.dot(W.T,V)+float(1e-8))
-    Htemp /= (np.memmap.dot(W.T,WH)+float(1e-8))
-
-    WH=np.memmap.dot(W,Htemp)
-    Wtemp *= (np.memmap.dot(V, H.T)+float(1e-8))
-    Wtemp /= (np.memmap.dot(WH,H.T)+float(1e-8))
-    return (Wtemp, Htemp)
-
-def KLDivUpdate(V,W,H):
-    Wtemp = np.copy(W)
-    Htemp = np.copy(H)
-    WH=np.dot(W,H)
-    for (a,u),h in np.ndenumerate(H): # update H.
-        numer=0.0;
-        denom=0.0;
-        for i in xrange(W.shape[0]):
-            numer += float(W[(i,a)]) * V[(i,u)] / WH[(i,u)]
-            denom += float(W[(i,a)])
-        Htemp[(a,u)] = float(Htemp[(a,u)])*numer/denom	
-    WH=np.dot(W,Htemp)
-    for (i,a),w in np.ndenumerate(W): # update W.
-        numer=0.0;
-        denom=0.0;
-        for u in xrange(H.shape[1]):
-            numer += float(H[(a,u)]) * V[(i,u)] / WH[(i,u)]
-            denom += float(H[(a,u)])
-        Wtemp[(i,a)] = float(w)*numer/denom
-    return (Wtemp, Htemp)
-
 updateFuncs = {
     'euclidean' : euclideanUpdate,
-    'klDiv' : KLDivUpdate
+    #'klDiv' : KLDivUpdate
 }
 
 class nmf_config:
@@ -72,48 +76,40 @@ class nmf_config:
 def nmf(V, config):
     """
     Non-negative Matrix Factorization
-    
-    returns : (W,H), where W is a 
     """
-    # calculate execution time.
     print("In nmf.py.")
-    beginTime = time()
 
     # Initialize W & H.
+    Vfname  = 'nmf_a'
+    WHfname = 'WH.tmp'
+    dimV = V.shape
     dimW = (V.shape[0], config.r)
     dimH = (config.r, V.shape[1])
-    #W = np.random.uniform(0, 1, dimW)
-    #H = np.random.uniform(0, 1, dimH)
-    #WH= np.dot(W,H)
-    W = np.memmap('W.tmp', dtype='float64', mode='w+', shape=dimW)
-    H = np.memmap('H.tmp', dtype='float64', mode='w+', shape=dimH)
-    WH = np.memmap.dot(W,H)
-    print("WH calculated.")
-    WH_old = None
-    #pdb.set_trace()
-    currCost = config.costFunc(V,WH)
+    maxIter = 1000
+    W = np.memmap('nmf_W', dtype='float32', mode='w+', shape=dimW)
+    H = np.memmap('nmf_H', dtype='float32', mode='w+', shape=dimH)
+    W.fill(1)
+    H.fill(1)
+    memDot('WH.tmp', W, H)
+    print("Init WH calculated.")
+    pdb.set_trace()
+    currCost = config.costFunc(Vfname, WHfname, dimV)
     lastCost = currCost
     iterCount = 0
     print("Init cost:{0}".format(currCost))
 	# Run multiplicative update rule.
-    for it in xrange(1000):
-        Wtemp, Htemp = config.update(V,W,H)
-        WH_old = WH
-        WH=np.memmap.dot(Wtemp, Htemp)
-        # update cost.
-        temp = config.costFunc(V,WH)
-        #print("lastcost:{0}, currCost:{1}, temp:{2}".format(lastCost,currCost,temp))
-        #print("differnce between WH: {0}".format(config.costFunc(WH_old,WH)))
+    for it in xrange(maxIter):
+        if it % 500 == 0: print(it)
+        config.update(V,W,H)
+        memDot(W, H)
+        newCost = config.costFunc(Vfname, WHfname, dimV)
+        print("lastcost:{0}, currCost:{1}, temp:{2}".format(lastCost,currCost,temp))
         if(lastCost != currCost and lastCost - temp < config.minDelta):
             print("break since {0} -> {1}".format(lastCost,temp))
             break
-        W = np.memmap.copy(Wtemp)
-        H = np.memmap.copy(Htemp)
         lastCost = currCost
-        currCost = temp
+        currCost = newCost
         iterCount+=1
-        #if(iterCount%10 == 0):
-        #	print("Iter = {0}".format(iterCount))
 
     print("Done nmf algorithm.")
     print(" (n,m,r)=({0},{1},{2})".format(V.shape[0], V.shape[1], config.r))
@@ -121,17 +117,15 @@ def nmf(V, config):
     print(" cost={0}->{1}".format(lastCost,currCost))
     print(" minDelta={0}".format(config.minDelta))
     print(" iterations={0:d}".format(iterCount))
-    print(" time eplased={0:.0f}".format(time()-beginTime))
-    #pdb.set_trace()
-    return (W,H)
+    #print(" time eplased={0:.0f}".format(time()-beginTime))
 
 if __name__ == "__main__":
-    config = nmf_config(3, 0.0000001, "euclidean")
+    config = nmf_config(90, 0.0000001, "euclidean")
     #config = nmf_config(3, 0.0000001, "klDiv")
-    V = np.random.uniform(100,200,(10, 7))
+    numFeat   = 61509
+    numPhoto  = 7777
+    V = np.memmap('nmf_a', dtype='float32', mode='r+', \
+                  shape=(numPhoto, numFeat))
     print("start nmf.")
-    (W,H) = nmf(V,config)
-    with open('result.txt','w') as file:
-        WH = np.dot(W,H)
-        for idx, v in np.ndenumerate(V):
-            file.write("{0} {1}\n".format(V[idx], WH[idx]))
+    nmf(V,config)
+
