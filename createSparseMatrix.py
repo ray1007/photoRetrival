@@ -33,10 +33,11 @@ def readDoc(docNum, A):
             A[docNum-1, numSpeech+numViWord+gvwID-1] = wc
             #print("A[{0},{1}] = {2}".format(docNum,numSpeech+vwID,wc))
             
-def createMatrix():
+def createMatrix(filename):
     #A = np.zeros(shape=(numPhoto, numFeat), dtype=np.float16)
     #A = coo_matrix((numPhoto, numFeat), dtype=np.float)
-    A = np.memmap('nmf_a', dtype='float32', mode='w+', shape=(numPhoto,numFeat))
+    A = np.memmap(filename, dtype='float32', mode='w+', shape=(numPhoto,numFeat))
+    #A.fill(float(1e-6))
     for i in xrange(1, numPhoto+1):
         if(i%1000 == 0):
             print("Parsed photo {0}".format(i+1))
@@ -48,7 +49,10 @@ if __name__ == "__main__":
     #resource.setrlimit(resource.RUSAGE_SELF,(5000000000,7000000000))
 
     # Read in all corpus data and create matrix.
-    A = createMatrix()
+    filename = 'nmf_a'
+    if len(argv) == 2:
+        filename = argv[1]
+    A = createMatrix(filename)
     #np.savetxt('nmf_A.txt',A)
     print("Created A.")
     '''# Start nmf.

@@ -1,9 +1,20 @@
 #!/usr/bin/python
 
 import numpy as np
+from sys import argv
 import pdb
 
 batch = 200
+
+def print_usage(msg):
+    usage = (
+        "> python doNMF.py <model_dim> <sparse_matrix>\n"
+        "\n"
+        "  <model_dim>     (int): dimension of d.\n"
+        "  <sparse_matrix> (str): filename of sparse matrix.\n"
+    )
+    print('\n'.join([msg,usage]))
+    return
 
 '''
 dot product for reducing ram usage.
@@ -16,7 +27,7 @@ def memDot(outname, in1, in2):
         #print("{0} of {1}".format(i,sh[0]/batch))
         s = i*batch
         e = (i+1)*batch
-        if(e > sh[0]): e=sh[0]
+        if(i == sh[0]/batch-1): e=sh[0]
         result[s:e,:] = np.dot(in1[s:e,:],in2)
 '''
 Cost functions
@@ -35,7 +46,7 @@ def euclideanDist(Afilename, Bfilename, Vshape):
         #print("{0} of {1}".format(i,A.shape[0]/batch))
         s = i*batch
         e = (i+1)*batch
-        if(e > A.shape[0]): e=A.shape[0]
+        if(i == A.shape[0]/batch-1): e=A.shape[0]
         distSum += np.sum((A[s:e,:]-B[s:e,:])**2)
     return np.sqrt(distSum)
 
@@ -67,19 +78,28 @@ def euclideanUpdate(V,W,H):
         #print("{0} of {1}".format(i,H_old.shape[1]/batch))
         s = i*batch
         e = (i+1)*batch
-        if(e > H_old.shape[1]): e=H_old.shape[1]
-        H[:,s:e] *= (np.dot(W_old.T, V[:,s:e])+float(1e-8))
-        H[:,s:e] /= (np.dot(W_old.T, WH[:,s:e])+float(1e-8))
+        if i == H_old.shape[1]/batch-1:
+            #pdb.set_trace()
+            e=H_old.shape[1]
+        #if(e > H_old.shape[1]): e=H_old.shape[1]; 
+        H[:,s:e] *= (np.dot(W_old.T, V[:,s:e]))
+        H[:,s:e] /= (np.dot(W_old.T, WH[:,s:e])+float(1e-5))
+        #pdb.set_trace()
+    #pdb.set_trace()
 
     memDot('WH.tmp', W, H)
     for i in xrange(W_old.shape[0]/batch):
         #print("{0} of {1}".format(i,W_old.shape[0]/batch))
         s = i*batch
         e = (i+1)*batch
-        if(e > W_old.shape[0]): e=W_old.shape[0]
-        W[s:e,:] *= (np.dot(V[s:e,:], H_old.T)+float(1e-8))
-        W[s:e,:] /= (np.dot(WH[s:e,:],H_old.T)+float(1e-8))
+        if i == W_old.shape[0]/batch-1:
+            e=W_old.shape[0]
+        #if(e > W_old.shape[0]): e=W_old.shape[0]
+        W[s:e,:] *= (np.dot(V[s:e,:], H_old.T))
+        W[s:e,:] /= (np.dot(WH[s:e,:],H_old.T)+float(1e-5))
+    #pdb.set_trace()
     return (W_old, H_old)
+
 
 def KLDivUpdate(V,W,H):
     W_old = np.copy(W)
@@ -91,16 +111,18 @@ def KLDivUpdate(V,W,H):
         numer=0.0;
         denom=0.0;
         for i in xrange(W_old.shape[0]):
-            numer += float(W_old[(i,a)]) * V[(i,u)] / WH[(i,u)]
-            denom += float(W_old[(i,a)])
+            numer += float(W_old[i,a]) * (V[i,u]+float(1e-8)) \
+                     / (WH[i,u]+float(1e-8))
+            denom += float(W_old[i,a])
         H[(a,u)] = float(H_old[(a,u)])*(numer+float(1e-8))/(denom+float(1e-8))
     memDot('WH.tmp', W, H)
     for (i,a),w in np.ndenumerate(W_old): # update W.
         numer=0.0;
         denom=0.0;
         for u in xrange(H.shape[1]):
-            numer += float(H_old[(a,u)]) * V[(i,u)] / WH[(i,u)]
-            denom += float(H_old[(a,u)])
+            numer += float(H_old[a,u]) * (V[i,u]+float(1e-8)) \
+                     / (WH[i,u]+float(1e-8))
+            denom += float(H_old[a,u])
         W[(i,a)] = float(W_old[i,a])*(numer+float(1e-8))/(denom+float(1e-8))
     return (W_old, H_old)
 
@@ -135,10 +157,12 @@ def nmf(V, config):
     dimW = (V.shape[0], config.r)
     dimH = (config.r, V.shape[1])
     maxIter = 1000
-    W = np.memmap('nmf_W', dtype='float32', mode='w+', shape=dimW)
-    H = np.memmap('nmf_H', dtype='float32', mode='w+', shape=dimH)
-    W.fill(1)
-    H.fill(1)
+    W = np.memmap('nmf_W_{0}'.format(config.r), dtype='float32', \
+                  mode='w+', shape=dimW)
+    H = np.memmap('nmf_H_{0}'.format(config.r), dtype='float32', \
+                  mode='w+', shape=dimH)
+    W[:] = np.random.uniform(0.5,1,dimW)[:]
+    H[:] = np.random.uniform(0.5,1,dimH)[:]
     memDot('WH.tmp', W, H)
     print("Init WH calculated.")
     #pdb.set_trace()
@@ -153,7 +177,7 @@ def nmf(V, config):
         memDot(WHfname, W, H)
         newCost = config.costFunc(Vfname, WHfname, dimV)
         print("lastcost:{0}, currCost:{1}, newCost:{2}".format(lastCost,currCost,newCost))
-        if(lastCost != currCost and lastCost - newCost < config.minDelta):
+        if(lastCost != currCost and currCost - newCost < config.minDelta):
             print("break since {0} -> {1}".format(lastCost,newCost))
             W[:] = W_o[:]
             H[:] = H_o[:]
@@ -171,11 +195,14 @@ def nmf(V, config):
     #print(" time eplased={0:.0f}".format(time()-beginTime))
 
 if __name__ == "__main__":
-    #config = nmf_config(90, 0.0000001, "euclidean")
-    config = nmf_config(90, 0.0000001, "klDiv")
+    if len(argv) != 3: print_usage("Program takes 3 arg."); quit()
+    d = int(argv[1])
+    sparse_matrix = argv[2]
+    config = nmf_config(d, 0.0000001, "euclidean")
+    #config = nmf_config(90, 0.0000001, "klDiv")
     numFeat   = 61509
     numPhoto  = 7777
-    V = np.memmap('nmf_a', dtype='float32', mode='r+', \
+    V = np.memmap(sparse_matrix, dtype='float32', mode='r+', \
                   shape=(numPhoto, numFeat))
     print("start nmf.")
     nmf(V,config)
