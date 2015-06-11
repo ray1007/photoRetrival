@@ -1,0 +1,24 @@
+#!/bin/bash
+
+testDir=/home/ray1007/photoRetrieval
+testlist=_id.txt
+topN=50
+#queryList=/home/qxesqxes/photoSystem/qtermlist_final
+queryList=$testDir/qtermlist_3
+prog=/home/mayaplus/program/IR_eval/Qeval
+evalResult=$testDir/eval_result_$topN
+total=0
+count=0
+rm $evalResult
+for query in `cat $queryList`
+do
+	head -n $topN $testDir/$query$testlist > $testDir/$query$topN$testlist
+	echo $query >> $evalResult
+	num=`$prog $query $testDir/$query$topN$testlist`
+	echo $num >> $evalResult
+	total=$(echo "scale=5;$total+$num"|bc)
+    count=$((count+1))
+done
+map=$(echo "scale=5;$total/$count"|bc)
+echo "MAP: "$map
+echo "MAP: "$map >> $evalResult

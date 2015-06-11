@@ -5,6 +5,7 @@ from sys import argv
 import pdb
 
 batch = 200
+WHname= 'WH'
 
 def print_usage(msg):
     usage = (
@@ -71,8 +72,8 @@ Multiplicative update rules.
 def euclideanUpdate(V,W,H):
     W_old = np.copy(W)
     H_old = np.copy(H)
-    memDot('WH.tmp', W, H)
-    WH=np.memmap('WH.tmp', dtype='float32', mode='r', \
+    memDot(WHname, W, H)
+    WH=np.memmap(WHname, dtype='float32', mode='r', \
                  shape=(W.shape[0], H.shape[1]))
     for i in xrange(H_old.shape[1]/batch):
         #print("{0} of {1}".format(i,H_old.shape[1]/batch))
@@ -87,7 +88,7 @@ def euclideanUpdate(V,W,H):
         #pdb.set_trace()
     #pdb.set_trace()
 
-    memDot('WH.tmp', W, H)
+    memDot(WHname, W, H)
     for i in xrange(W_old.shape[0]/batch):
         #print("{0} of {1}".format(i,W_old.shape[0]/batch))
         s = i*batch
@@ -104,8 +105,8 @@ def euclideanUpdate(V,W,H):
 def KLDivUpdate(V,W,H):
     W_old = np.copy(W)
     H_old = np.copy(H)
-    memDot('WH.tmp', W, H)
-    WH=np.memmap('WH.tmp', dtype='float32', mode='r', \
+    memDot(WHname, W, H)
+    WH=np.memmap(WHname, dtype='float32', mode='r', \
                  shape=(W.shape[0], H.shape[1]))
     for (a,u),h in np.ndenumerate(H_old): # update H.
         numer=0.0;
@@ -115,7 +116,7 @@ def KLDivUpdate(V,W,H):
                      / (WH[i,u]+float(1e-8))
             denom += float(W_old[i,a])
         H[(a,u)] = float(H_old[(a,u)])*(numer+float(1e-8))/(denom+float(1e-8))
-    memDot('WH.tmp', W, H)
+    memDot(WHname, W, H)
     for (i,a),w in np.ndenumerate(W_old): # update W.
         numer=0.0;
         denom=0.0;
@@ -137,12 +138,13 @@ updateFuncs = {
 }
 
 class nmf_config:
-    def __init__(self, r, minDelta, costFuncName):
+    def __init__(self, r, minDelta, costFuncName, prefix):
         self.r = r
         self.minDelta   = minDelta
         self.costFuncName = costFuncName
         self.costFunc = costFuncs[costFuncName]
         self.update = updateFuncs[costFuncName]
+        self.prefix = prefix
 
 def nmf(V, config):
     """
@@ -152,21 +154,21 @@ def nmf(V, config):
 
     # Initialize W & H.
     Vfname  = 'nmf_a'
-    WHfname = 'WH.tmp'
+    #WHfname = 'WH.tmp'
     dimV = V.shape
     dimW = (V.shape[0], config.r)
     dimH = (config.r, V.shape[1])
     maxIter = 1000
-    W = np.memmap('nmf_W_{0}'.format(config.r), dtype='float32', \
-                  mode='w+', shape=dimW)
-    H = np.memmap('nmf_H_{0}'.format(config.r), dtype='float32', \
-                  mode='w+', shape=dimH)
+    W = np.memmap('{0}_W_{1}'.format(config.prefix,config.r), \
+                  dtype='float32', mode='w+', shape=dimW)
+    H = np.memmap('{0}_H_{1}'.format(config.prefix,config.r), \
+                  dtype='float32', mode='w+', shape=dimH)
     W[:] = np.random.uniform(0.5,1,dimW)[:]
     H[:] = np.random.uniform(0.5,1,dimH)[:]
-    memDot('WH.tmp', W, H)
+    memDot(WHname, W, H)
     print("Init WH calculated.")
     #pdb.set_trace()
-    currCost = config.costFunc(Vfname, WHfname, dimV)
+    currCost = config.costFunc(Vfname, WHname, dimV)
     lastCost = currCost
     iterCount = 0
     print("Init cost:{0}".format(currCost))
@@ -174,8 +176,8 @@ def nmf(V, config):
     for it in xrange(maxIter):
         if it % 500 == 0: print(it)
         (W_o, H_o) = config.update(V,W,H)
-        memDot(WHfname, W, H)
-        newCost = config.costFunc(Vfname, WHfname, dimV)
+        memDot(WHname, W, H)
+        newCost = config.costFunc(Vfname, WHname, dimV)
         print("lastcost:{0}, currCost:{1}, newCost:{2}".format(lastCost,currCost,newCost))
         if(lastCost != currCost and currCost - newCost < config.minDelta):
             print("break since {0} -> {1}".format(lastCost,newCost))
@@ -198,7 +200,8 @@ if __name__ == "__main__":
     if len(argv) != 3: print_usage("Program takes 3 arg."); quit()
     d = int(argv[1])
     sparse_matrix = argv[2]
-    config = nmf_config(d, 0.0000001, "euclidean")
+    WHname = '{0}_WH_{1}.tmp'.format(sparse_matrix,d)
+    config = nmf_config(d, 0.1, "euclidean", sparse_matrix)
     #config = nmf_config(90, 0.0000001, "klDiv")
     numFeat   = 61509
     numPhoto  = 7777
